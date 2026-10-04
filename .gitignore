@@ -1,0 +1,7 @@
+node_modules/
+ch-agent.exe
+*.sqlite
+*.log
+.ch-relay/
+ch-agent.prev*.exe
+share-pool.db
