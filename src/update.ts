@@ -10,6 +10,7 @@ import { policyBaseUrl } from "./share/policy-client.ts";
 import { HOME } from "./paths.ts";
 import { AGENT_VERSION } from "./version.ts";
 import { log } from "./lib/log.ts";
+import { pinnedFetch } from "./net/pin.ts";
 import { spawn } from "node:child_process";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -53,7 +54,7 @@ export function updateState() {
 export async function checkUpdate(force = false): Promise<ReturnType<typeof updateState>> {
   if (!force && latestCache && Date.now() - latestCache.at < CHECK_TTL_MS) return updateState();
   try {
-    const res = await fetch(`${policyBaseUrl()}/version?os=${OS_KEY}`, { signal: AbortSignal.timeout(10_000) });
+    const res = await pinnedFetch(`${policyBaseUrl()}/version?os=${OS_KEY}`, { signal: AbortSignal.timeout(10_000) });
     if (res.ok) {
       const j = (await res.json()) as { v?: string };
       if (typeof j?.v === "string" && j.v) latestCache = { v: j.v, at: Date.now() };
@@ -79,7 +80,7 @@ export async function applyUpdate(): Promise<{ ok: true }> {
 }
 
 async function doApply(): Promise<{ ok: true }> {
-  const res = await fetch(`${policyBaseUrl()}/dl/agent?os=${OS_KEY}`, { signal: AbortSignal.timeout(120_000) });
+  const res = await pinnedFetch(`${policyBaseUrl()}/dl/agent?os=${OS_KEY}`, { signal: AbortSignal.timeout(120_000) });
   if (!res.ok) throw new Error(`download failed (${res.status})`);
   const buf = Buffer.from(await res.arrayBuffer());
   if (buf.length < 1_000_000) throw new Error("download looks truncated");

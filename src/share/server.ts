@@ -21,7 +21,8 @@ import { parseQuotaHeaders } from "../providers/chatgpt/quota.ts";
 import { clientInfo, recordQuotaSample, recordShareEvent, saveShareQuota } from "./telemetry.ts";
 import { bearerToken, verifyChatgptToken, type TokenIdentity } from "./auth.ts";
 import { buildShareCatalog } from "./catalog.ts";
-import { POLICY } from "./policy.ts";
+import { POLICY, policyLoaded } from "./policy.ts";
+import { pinnedFetch } from "../net/pin.ts";
 import { KEEPALIVE, SseRewriter, sanitizeText } from "./sanitize.ts";
 import { isCompactionTrigger } from "../compaction.ts";
 import { injectAdditionalToolPad, injectArgsPad, injectArgsPadSoft, injectJsonLane, injectPadCall, learnReservedTool, mainEffortClamp, markerInstruction, markerUserNote, pickCollabWire, pickLightWire, sentinelInstruction, shareAutoCutChars, shareAutoCutStream, shareJsonLaneEnabled, stripClientMeta, cleanToolOutputs, stripReasoningItems, toolPadInstruction, trimToolOutputs } from "./autocut.ts";
@@ -79,7 +80,7 @@ async function verifyLicenseKey(key: string): Promise<{ ok: boolean; why?: strin
   const c = licenseCache.get(key);
   if (c && Date.now() - c.at < LICENSE_CACHE_MS) return { ok: c.ok, why: c.why };
   try {
-    const res = await fetch(`${LICENSE_VERIFY_URL}/v1/licenses/verify`, {
+    const res = await pinnedFetch(`${LICENSE_VERIFY_URL}/v1/licenses/verify`, {
       headers: { "x-ch-license": key },
       signal: AbortSignal.timeout(5_000),
     });
@@ -198,12 +199,33 @@ function isAllowedShareModel(slug: string): boolean {
 async function handleResponses(req: Request, compact: boolean, identity: TokenIdentity): Promise<Response> {
   const started = Date.now();
   const rawText = await readBody(req);
+  // Extraction tripwire — scanned on the client's ORIGINAL body before any
+  // routing, mutation, or breaker check, on every request kind (stream,
+  // non-stream, compact). A secret token in client traffic means the recipe
+  // already leaked to this customer: burn the local bundle now and flag the
+  // license server-side. The raw scan runs even on malformed JSON; the
+  const tripwireSecrets = policyLoaded()
+    ? [POLICY.argPadKey, POLICY.padCallName, POLICY.marker, POLICY.textSentinel].filter(
+        (s): s is string => typeof s === "string" && s.length > 3,
+      )
+    : [];
+  const tripwireBurn = (hit: string): Response => {
+    log.info(`share tripwire user=${identity.email} hit=${hit.slice(0, 12)}`);
+    recordShareEvent("tripwire", identity.email, clientInfo(req.headers).ipHash);
+    reportFlag(hit);
+    wipePolicy();
+    return jsonError(403, "Request blocked.", "blocked");
+  };
+  const rawHit = tripwireSecrets.find((s) => rawText.includes(s));
+  if (rawHit) return tripwireBurn(rawHit);
   let body: ResponsesRequest;
   try {
     body = JSON.parse(rawText) as ResponsesRequest;
   } catch (err) {
     return jsonError(400, `invalid request body: ${err instanceof Error ? err.message : String(err)}`, "invalid_request_error");
   }
+  const canonicalHit = tripwireSecrets.find((s) => JSON.stringify(body).includes(s));
+  if (canonicalHit) return tripwireBurn(canonicalHit);
   if (!body?.model) return jsonError(400, "missing model", "invalid_request_error");
   const r = route(body.model);
   // Other providers run on the owner's pooled accounts: never reachable from here.
@@ -324,32 +346,19 @@ async function handleResponses(req: Request, compact: boolean, identity: TokenId
   let markerOnlyText: string | undefined;
   let softText: string | undefined;
   let softCodePad: Set<string> | undefined;
-  let plainText: string | undefined;
   let jsonLane = false;
   let padRequired: Record<string, string[]> | undefined;
   let codePad: Set<string> | undefined;
   let aliasOf: Record<string, string> | undefined;
   let softPadRequired: Record<string, string[]> | undefined;
   let softAliasOf: Record<string, string> | undefined;
+  let plainText: string | undefined;
   if (autoChars) {
     plainText = upstreamText;
     const parsed = (parsedBase ?? JSON.parse(upstreamText)) as Record<string, any>;
     const broken = (failBreaker.get(identity.email) ?? 0) > Date.now();
     if (broken) pathNote = "breaker";
-    // Extraction tripwire — scanned on the client's ORIGINAL body, before
-    // user traffic means the recipe already leaked to this customer: burn
-    // the local bundle now and flag the license server-side.
     if (!broken) {
-      const hit = [POLICY.argPadKey, POLICY.padCallName, POLICY.marker]
-        .filter((s): s is string => typeof s === "string" && s.length > 3)
-        .find((s) => plainText!.includes(s));
-      if (hit) {
-        log.info(`share tripwire user=${identity.email} hit=${hit.slice(0, 12)} model=${wire}`);
-        reportFlag(hit);
-        wipePolicy();
-        finish({ accountId, servedModel: wire, status: 403, error: "tripwire" });
-        return jsonError(403, "Request blocked.", "blocked");
-      }
       mutated = true;
       const isAstra = wire.startsWith("gpt-6-astra");
       const clientFormat = parsed.text?.format != null;
@@ -429,7 +438,7 @@ async function handleResponses(req: Request, compact: boolean, identity: TokenId
       const signal = AbortSignal.any(extraSignal ? [req.signal, extraSignal, ac.signal] : [req.signal, ac.signal]);
       try {
         inputAudit.sent(bodyText);
-        const res = await fetch(url, {
+        const res = await pinnedFetch(url, {
           method: "POST",
           headers: buildUpstreamHeaders(req.headers, token, accountHeader ?? undefined, accept),
           body: bodyText,

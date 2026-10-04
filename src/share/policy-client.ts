@@ -13,6 +13,8 @@ import { createHash, createCipheriv, createDecipheriv, randomBytes } from "node:
 import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { HOME } from "../paths.ts";
+import { pinnedFetch } from "../net/pin.ts";
+import { getSetting, setSetting } from "../store/db.ts";
 import { setPolicy, clearPolicy, type PolicySpec } from "./policy.ts";
 import { log } from "../lib/log.ts";
 
@@ -124,7 +126,7 @@ export async function loadPolicy(license: string): Promise<{ source: "server" | 
   const url = policyBaseUrl();
   if (url) {
     try {
-      const res = await fetch(`${url}/v1/policy`, {
+      const res = await pinnedFetch(`${url}/v1/policy`, {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${license}` },
         body: JSON.stringify({ license, device: deviceId() }),
@@ -136,6 +138,7 @@ export async function loadPolicy(license: string): Promise<{ source: "server" | 
           const bundle = unsealBundle(license, j.ct);
           setPolicy(bundle);
           saveCache(license, bundle);
+          void postPendingFlags();
           return { source: "server", v: j.v ?? bundle.v ?? 0 };
         }
       } else {
@@ -193,16 +196,51 @@ export function wipePolicy(): void {
   clearPolicy();
 }
 
-/** Fire-and-forget: tell the server this device probed for secret tokens. */
+/** Pending flag reports survive restart/network loss: a tripwire hit is
+ *  queued in settings and reposted on every policy refresh until the server
+ *  acknowledges it — otherwise a probe fired while the edge blocks the client
+ *  IP (e.g. Cloudflare rate-limit) would evaporate. */
+const FLAG_PENDING_KEY = "flag_pending";
+
+async function postPendingFlags(): Promise<void> {
+  let pending: string[];
+  try {
+    pending = getSetting<string[]>(FLAG_PENDING_KEY, []);
+  } catch {
+    return;
+  }
+  if (!pending.length) return;
+  const license = readLicense();
+  const url = policyBaseUrl();
+  if (!license || !url) return;
+  const left: string[] = [];
+  for (let i = 0; i < pending.length; i++) {
+    const hit = pending[i]!;
+    try {
+      const res = await pinnedFetch(`${url}/v1/flag`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${license}` },
+        body: JSON.stringify({ license, device: deviceId(), hit }),
+        signal: AbortSignal.timeout(8_000),
+      });
+      if (!res.ok) left.push(hit);
+    } catch {
+      left.push(...pending.slice(i));
+      break;
+    }
+  }
+  try {
+    setSetting(FLAG_PENDING_KEY, left.slice(-10));
+  } catch { /* best effort */ }
+}
+
+/** Tell the server this device probed for secret tokens. Queued first, then
+ *  posted — retries ride the hourly policy refresh until acknowledged. */
 export function reportFlag(hit: string): void {
   try {
-    const license = readLicense();
-    if (!license) return;
-    fetch(`${policyBaseUrl()}/v1/flag`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ license, device: deviceId(), hit }),
-      signal: AbortSignal.timeout(8_000),
-    }).catch(() => {});
+    const pending = getSetting<string[]>(FLAG_PENDING_KEY, []);
+    pending.push(hit.slice(0, 80));
+    setSetting(FLAG_PENDING_KEY, pending.slice(-10));
+    void postPendingFlags();
   } catch { /* never let reporting break the data path */ }
 }

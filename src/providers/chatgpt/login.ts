@@ -2,6 +2,7 @@
 // with a device-code fallback when the port is busy or the caller asks for it.
 
 import { upsertAccount } from "../../store/accounts.ts";
+import { pinnedFetch } from "../../net/pin.ts";
 import { log } from "../../lib/log.ts";
 import type { Account, LoginFlow, LoginStart, LoginStatus } from "../../types.ts";
 import {
@@ -177,7 +178,7 @@ function fetchSignal(signal: AbortSignal): AbortSignal {
 }
 
 async function startDevice(): Promise<LoginStart> {
-  const res = await fetch(DEVICE_USERCODE_URL, {
+  const res = await pinnedFetch(DEVICE_USERCODE_URL, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ client_id: CLIENT_ID }),
@@ -200,7 +201,7 @@ async function startDevice(): Promise<LoginStart> {
 async function pollDevice(id: string, signal: AbortSignal, deviceAuthId: string, userCode: string, intervalMs: number): Promise<void> {
   try {
     while (!signal.aborted) {
-      const res = await fetch(DEVICE_TOKEN_URL, {
+      const res = await pinnedFetch(DEVICE_TOKEN_URL, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ device_auth_id: deviceAuthId, user_code: userCode }),

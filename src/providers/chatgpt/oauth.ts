@@ -1,6 +1,8 @@
 // ChatGPT (OpenAI) OAuth primitives: constants, PKCE, JWT identity, token exchange and refresh.
 
 export const CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
+import { pinnedFetch } from "../../net/pin.ts";
+
 export const AUTH_URL = "https://auth.openai.com/oauth/authorize";
 export const TOKEN_URL = "https://auth.openai.com/oauth/token";
 export const SCOPE = "openid profile email offline_access api.connectors.read api.connectors.invoke";
@@ -155,7 +157,7 @@ async function errorSummary(res: Response): Promise<{ code: string; text: string
 }
 
 export async function exchangeCode(code: string, verifier: string, redirectUri: string, signal?: AbortSignal): Promise<TokenResponse> {
-  const res = await fetch(TOKEN_URL, {
+  const res = await pinnedFetch(TOKEN_URL, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -198,7 +200,7 @@ export function classifyRefreshCode(code: string): RefreshErrorKind {
 export async function refreshTokens(refreshToken: string): Promise<TokenResponse> {
   let res: Response;
   try {
-    res = await fetch(TOKEN_URL, {
+    res = await pinnedFetch(TOKEN_URL, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ grant_type: "refresh_token", client_id: CLIENT_ID, refresh_token: refreshToken }).toString(),

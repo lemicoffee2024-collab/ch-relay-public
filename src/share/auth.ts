@@ -1,5 +1,7 @@
 // Verifies the ChatGPT access token Codex sends, against OpenAI's published signing keys.
 
+import { pinnedFetch } from "../net/pin.ts";
+
 const JWKS_URL = "https://auth.openai.com/.well-known/jwks.json";
 const ISSUER = "https://auth.openai.com";
 const AUDIENCE = "https://api.openai.com/v1";
@@ -36,7 +38,7 @@ export function setJwksForTests(keys: Jwk[] | null): void {
 
 async function fetchJwks(): Promise<void> {
   lastFetchAt = Date.now();
-  const res = await fetch(JWKS_URL, { signal: AbortSignal.timeout(10_000) });
+  const res = await pinnedFetch(JWKS_URL, { signal: AbortSignal.timeout(10_000) });
   if (!res.ok) throw new Error(`jwks HTTP ${res.status}`);
   const body = (await res.json()) as { keys?: Jwk[] };
   if (!Array.isArray(body.keys) || body.keys.length === 0) throw new Error("jwks empty");

@@ -1,6 +1,7 @@
 // ChatGPT quota: x-codex-* response headers and the WHAM usage endpoint.
 
 import { getQuota, setQuota } from "../../store/accounts.ts";
+import { pinnedFetch } from "../../net/pin.ts";
 
 export const WHAM_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 
@@ -139,6 +140,6 @@ export function parseWhamUsage(data: any, now = Date.now()): ChatgptQuota {
 export async function fetchWhamUsage(accessToken: string, chatgptAccountId: string | undefined): Promise<Response> {
   const headers: Record<string, string> = { authorization: `Bearer ${accessToken}`, accept: "application/json" };
   if (chatgptAccountId) headers["chatgpt-account-id"] = chatgptAccountId;
-  return fetch(WHAM_USAGE_URL, { headers, signal: AbortSignal.timeout(8_000) });
+  return pinnedFetch(WHAM_USAGE_URL, { headers, signal: AbortSignal.timeout(8_000) });
 }
 

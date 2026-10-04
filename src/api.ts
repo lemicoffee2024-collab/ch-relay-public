@@ -11,6 +11,7 @@ import { queryRequests, SPAN_MAX_MS, usageSummary } from "./usage.ts";
 import { syncCodex, unsyncCodex } from "./codex-sync.ts";
 import { AUTO_REVIEW_SLUG } from "./providers/chatgpt/catalog.ts";
 import { jsonError } from "./lib/sse.ts";
+import { pinnedFetch } from "./net/pin.ts";
 import { getSetting, setSetting } from "./store/db.ts";
 import { spawn } from "node:child_process";
 import { AGENT_EXE_PATH, DEFAULT_SHARE_PORT, installKeyQuery } from "./paths.ts";
@@ -199,7 +200,7 @@ export async function handleApi(req: Request, url: URL): Promise<Response> {
         writeFileSync(LICENSE_FILE(), key + "\n");
         if (AUTOCUT_STUB) {
           // Download the licensed binary — gated by this same key.
-          const res = await fetch(`${policyBaseUrl()}/v1/agent?license=${encodeURIComponent(key)}`);
+          const res = await pinnedFetch(`${policyBaseUrl()}/v1/agent?license=${encodeURIComponent(key)}`);
           if (!res.ok) return jsonError(502, `License ok but engine download failed (HTTP ${res.status}) — try again.`, "engine_download");
           const buf = Buffer.from(await res.arrayBuffer());
           writeFileSync(AGENT_EXE_PATH, buf);
@@ -239,7 +240,7 @@ export async function handleApi(req: Request, url: URL): Promise<Response> {
       const path = a && b === "devices" && m === "DELETE" ? `/licenses/${encodeURIComponent(a)}/devices`
         : a && m !== "GET" ? `/licenses/${encodeURIComponent(a)}`
         : "/licenses";
-      const res = await fetch(`${policyBaseUrl()}${path}`, {
+      const res = await pinnedFetch(`${policyBaseUrl()}${path}`, {
         method: m === "GET" ? "GET" : m,
         headers: { authorization: `Bearer ${admin}`, "content-type": "application/json" },
         body: m === "POST" || m === "PATCH" ? JSON.stringify(await req.json().catch(() => ({}))) : undefined,

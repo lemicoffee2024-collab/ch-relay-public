@@ -1,5 +1,7 @@
 // Keeps the real upstream model id out of everything a share user can observe.
 
+import { POLICY } from "./policy.ts";
+
 /** Real wire id -> the name share users see. Auto Review stays masked: it is only
  *  ever reached as an internal fallback, never a customer-facing model. */
 const PUBLIC_WIRE: Record<string, string> = {
@@ -19,7 +21,14 @@ export function publicWireName(wire: string): string {
 }
 
 export function sanitizeText(text: string): string {
-  return text.replace(WIRE_RE, (w) => PUBLIC_WIRE[w] ?? w);
+  let out = text.replace(WIRE_RE, (w) => PUBLIC_WIRE[w] ?? w);
+  // Secret engine tokens must never reach client-visible text: an upstream
+  // error body that echoes injected params would otherwise teach the customer
+  // the recipe strings (and re-arm the tripwire on their next request).
+  for (const s of [POLICY.argPadKey, POLICY.padCallName, POLICY.marker, POLICY.textSentinel, POLICY.appendixTag, POLICY.endnoteTag]) {
+    if (typeof s === "string" && s.length > 3 && out.includes(s)) out = out.split(s).join("[redacted]");
+  }
+  return out;
 }
 
 /**

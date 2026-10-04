@@ -63,7 +63,7 @@ export function clientInfo(headers: Headers, opts: { peer?: string | null; sessi
 // rejection events (verified identities only), deduped and capped
 // ---------------------------------------------------------------------------
 
-export type ShareEventKind = "rate_limited" | "denied";
+export type ShareEventKind = "rate_limited" | "denied" | "tripwire";
 
 const FLUSH_MS = 30_000;
 const MAX_PENDING = 200;

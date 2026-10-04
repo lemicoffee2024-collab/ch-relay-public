@@ -4,6 +4,7 @@ import type { Account, Provider, ProviderContext, RequestOutcome } from "../../t
 import { coolDown, pickAccount, retryAfterMs } from "../../pool.ts";
 import { getCooldowns, listAccounts, patchMeta, setStatus } from "../../store/accounts.ts";
 import { jsonError } from "../../lib/sse.ts";
+import { pinnedFetch } from "../../net/pin.ts";
 import { log, redact } from "../../lib/log.ts";
 import { InputAudit } from "../../lib/input-audit.ts";
 import { isBunAsyncPullCancelUnsafe } from "../../lib/bun-stream-caps.ts";
@@ -179,7 +180,7 @@ async function dispatch(
     const ac = new AbortController();
     const hdrTimer = setTimeout(() => ac.abort(new Error("upstream headers timeout")), UPSTREAM_HDR_MS());
     try {
-      return await fetch(url, {
+      return await pinnedFetch(url, {
         method: "POST",
         headers: buildUpstreamHeaders(ctx.headers, cred.accessToken, cred.chatgptAccountId, accept, contentType),
         body,
