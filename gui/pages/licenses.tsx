@@ -92,7 +92,7 @@ export function LicensesPage() {
         ) : (
           <table className="tbl">
             <thead>
-              <tr><th>Key</th><th>Khách</th><th>Máy</th><th>Lượt xài</th><th>Hoạt động cuối</th><th>Hết hạn</th><th></th></tr>
+              <tr><th>Key</th><th>Khách</th><th>Máy</th><th>Lượt xài</th><th title="Request thật qua proxy trong 24h (agent ≥1.1.3 mới báo)">24h</th><th>Hoạt động cuối</th><th>Hết hạn</th><th></th></tr>
             </thead>
             <tbody>
               {rows.map((r) => {
@@ -109,6 +109,16 @@ export function LicensesPage() {
                     </td>
                     <td title="Số máy đã kích hoạt / giới hạn">{r.devices}/{r.max_devices ?? 3}</td>
                     <td>{num(r.uses)}</td>
+                    <td title={r.t24_models ? `${r.t24_models}${r.t24_kinds ? ` · lỗi: ${r.t24_kinds}` : ""}` : undefined}>
+                      {r.t24_req ? (
+                        <>
+                          {num(r.t24_req)} req
+                          {r.t24_err ? <span style={{ color: "#e5484d", marginLeft: 4 }}>({r.t24_err} err)</span> : null}
+                        </>
+                      ) : (
+                        <span className="dim">—</span>
+                      )}
+                    </td>
                     <td>{fmtDay(r.last_seen_at)}</td>
                     <td>
                       {r.revoked ? "đã thu hồi" : r.expires_at === null ? "vĩnh viễn" : fmtDay(r.expires_at)}

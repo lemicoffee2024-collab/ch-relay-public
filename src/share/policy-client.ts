@@ -63,7 +63,7 @@ const DEVICE_FILE = () => join(HOME, "device.id");
 let cachedDevice: string | null = null;
 /** Stable per-install machine id — generated once, lets the policy server
  *  count how many distinct machines a license is activated on. */
-function deviceId(): string {
+export function deviceId(): string {
   if (cachedDevice) return cachedDevice;
   try {
     if (existsSync(DEVICE_FILE())) {
@@ -180,12 +180,21 @@ export function startPolicyRefresh(license: string, intervalMs = REFRESH_MS): vo
   const tick = async () => {
     try {
       await loadPolicy(license);
+      // Telemetry rides the same cadence — dynamic import keeps the upload
+      // module (which depends on this file's license/device helpers) out of
+      // a require cycle.
+      const { reportTelemetry } = await import("./telemetry-upload.ts");
+      await reportTelemetry();
     } catch (err) {
       log.info(`policy refresh failed: ${err instanceof Error ? err.message : err}`);
     }
   };
   const t = setInterval(tick, intervalMs);
   t.unref();
+  // First tick shortly after start: a fresh install's sign-of-life and the
+  // operator's first telemetry row shouldn't wait a full interval.
+  const first = setTimeout(tick, 60_000);
+  first.unref();
 }
 
 /** Extraction tripwire: RAM + disk bundle wiped immediately. The refresh

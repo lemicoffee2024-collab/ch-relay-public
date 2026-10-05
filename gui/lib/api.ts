@@ -426,6 +426,11 @@ export interface LicenseRow {
   max_devices: number | null;
   devices: number;
   flags: number;
+  t24_req?: number;
+  t24_err?: number;
+  t24_at?: number | null;
+  t24_models?: string | null;
+  t24_kinds?: string | null;
 }
 
 export const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
